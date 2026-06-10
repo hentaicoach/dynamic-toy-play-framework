@@ -75,6 +75,7 @@ class Playbook {
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '未命名玩法',
       luaScript: json['lua_script'] as String? ?? json['luaScript'] as String? ?? '',
+      jsonPlay: json['json_play'] as String? ?? json['jsonPlay'] as String?,
       explanation: PlaybookExplanation.fromJson(
         json['explanation'] as Map<String, dynamic>? ?? {},
       ),
@@ -91,6 +92,7 @@ class Playbook {
         'id': id,
         'name': name,
         'lua_script': luaScript,
+        'json_play': jsonPlay,
         'explanation': explanation.toJson(),
         'created_at': createdAt.toIso8601String(),
         'toy_ids': toyIds,

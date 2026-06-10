@@ -8,9 +8,11 @@ import '../../providers/api_config.dart';
 import '../services/ble/ble_manager.dart';
 import '../services/ble/ble_connection.dart';
 import '../services/ble/toy_registry.dart';
+import '../services/ble/drivers/toy_driver.dart';
+import '../services/ble/drivers/fake_drivers.dart';
 
 class BluetoothPage extends StatefulWidget {
-  final ToyRegistry? registry; // 可选注入，用于注册 BLE 驱动
+  final ToyRegistry? registry;
 
   const BluetoothPage({super.key, this.registry});
 
@@ -19,23 +21,37 @@ class BluetoothPage extends StatefulWidget {
 }
 
 class _BluetoothPageState extends State<BluetoothPage> {
+  // ── 真实 BLE 相关 ──
   final BleManager _bleManager = BleManager();
   StreamSubscription? _scanSub;
   StreamSubscription? _disconnectSub;
-  bool _isScanning = false;
   bool _isInitialized = false;
   String? _errorMsg;
 
-  /// 扫描发现的设备列表
+  // ── 通用 ──
+  bool _isScanning = false;
+
+  /// 扫描发现的设备（真实 BLE 用）
   final List<_FoundDevice> _foundDevices = [];
 
   /// 连接中的设备 ID
   final Set<String> _connectingIds = {};
 
+  // ── Debug 模式的静态 mock 设备 ──
+  static final List<_MockDevice> _mockDevices = [
+    _MockDevice(name: '蛋蛋-01', id: 'egg_1', type: 'vibrator'),
+    _MockDevice(name: '飞机杯-M2', id: 'mast_1', type: 'vibrator'),
+    _MockDevice(name: '电击器-EMS4', id: 'ems_1', type: 'ems'),
+    _MockDevice(name: '灌肠器-P3', id: 'enema_1', type: 'enema'),
+  ];
+
   @override
   void initState() {
     super.initState();
-    _initBle();
+    final isDebug = context.read<ApiConfig>().debugMode;
+    if (!isDebug) {
+      _initBle();
+    }
   }
 
   Future<void> _initBle() async {
@@ -43,24 +59,17 @@ class _BluetoothPageState extends State<BluetoothPage> {
       await _bleManager.init();
       if (mounted) setState(() => _isInitialized = true);
 
-      // 监听断开事件
       _disconnectSub = _bleManager.onDeviceDisconnected.listen((deviceId) {
         if (mounted) {
-          final toyState = context.read<ToyState>();
-          toyState.removeToy(deviceId);
-          final registry = widget.registry;
-          if (registry != null) {
-            registry.unregister(deviceId);
-          }
+          context.read<ToyState>().removeToy(deviceId);
+          widget.registry?.unregister(deviceId);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('设备 $deviceId 已断开')),
           );
         }
       });
     } catch (e) {
-      if (mounted) {
-        setState(() => _errorMsg = 'BLE 初始化失败: $e');
-      }
+      if (mounted) setState(() => _errorMsg = 'BLE 初始化失败: $e');
     }
   }
 
@@ -72,23 +81,56 @@ class _BluetoothPageState extends State<BluetoothPage> {
     super.dispose();
   }
 
+  // ═══════════════════════════════════════════════
+  // 扫描
+  // ═══════════════════════════════════════════════
+
   void _startScan() {
     if (_isScanning) return;
+    final isDebug = context.read<ApiConfig>().debugMode;
+    if (isDebug) {
+      _startMockScan();
+    } else {
+      _startBleScan();
+    }
+  }
 
+  void _startMockScan() {
+    setState(() {
+      _isScanning = true;
+      _foundDevices.clear();
+    });
+
+    // 模拟 1.5 秒扫描延迟后展示 mock 设备
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (!mounted) return;
+      final existingIds = _foundDevices.map((d) => d.deviceId).toSet();
+      for (final m in _mockDevices) {
+        if (!existingIds.contains(m.id)) {
+          _foundDevices.add(_FoundDevice(
+            deviceId: m.id,
+            deviceName: m.name,
+            rssi: -60 - (m.id.hashCode % 30),
+            serviceUuid: _mockServiceUuid(m.type),
+          ));
+        }
+      }
+      setState(() => _isScanning = false);
+    });
+  }
+
+  void _startBleScan() {
     setState(() {
       _isScanning = true;
       _foundDevices.clear();
       _errorMsg = null;
     });
 
-    // 订阅扫描结果
     _scanSub?.cancel();
     _scanSub = _bleManager.scanResults.listen((result) {
       if (!mounted) return;
       setState(() {
-        // 去重更新
-        final idx = _foundDevices.indexWhere(
-            (d) => d.deviceId == result.deviceId);
+        final idx = _foundDevices.indexWhere((d) => d.deviceId == result.deviceId);
         if (idx >= 0) {
           _foundDevices[idx] = _FoundDevice(
             deviceId: result.deviceId,
@@ -107,41 +149,45 @@ class _BluetoothPageState extends State<BluetoothPage> {
       });
     });
 
-    // 开始扫描
     _bleManager.startScan(timeout: const Duration(seconds: 10));
-
-    // 超时后自动停止
-    Future.delayed(const Duration(seconds: 10), () {
-      _stopScan();
-    });
+    Future.delayed(const Duration(seconds: 10), _stopScan);
   }
 
   void _stopScan() {
     _bleManager.stopScan();
     _scanSub?.cancel();
     _scanSub = null;
-    if (mounted) {
-      setState(() => _isScanning = false);
-    }
+    if (mounted) setState(() => _isScanning = false);
   }
+
+  // ═══════════════════════════════════════════════
+  // 连接 / 断开
+  // ═══════════════════════════════════════════════
 
   Future<void> _connect(String type, _FoundDevice device) async {
     if (_connectingIds.contains(device.deviceId)) return;
-
     setState(() => _connectingIds.add(device.deviceId));
 
     try {
-      // 1. BLE 连接
-      final conn = await _bleManager.connect(
-        deviceId: device.deviceId,
-        deviceName: device.deviceName,
-        serviceUuid: device.serviceUuid,
-      );
+      final isDebug = context.read<ApiConfig>().debugMode;
 
-      // 2. 注册真实驱动
-      final registry = widget.registry;
-      if (registry != null) {
-        registry.registerBleDriver(
+      if (isDebug) {
+        // Debug: 用 FakeDriver
+        final registry = widget.registry;
+        if (registry != null) {
+          registry.register(
+            device.deviceId,
+            _createFakeDriver(device.deviceId, device.deviceName, type),
+          );
+        }
+      } else {
+        // 真实 BLE 连接
+        final conn = await _bleManager.connect(
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          serviceUuid: device.serviceUuid,
+        );
+        widget.registry?.registerBleDriver(
           toyId: device.deviceId,
           toyName: device.deviceName,
           type: type,
@@ -149,7 +195,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
         );
       }
 
-      // 3. 更新 ToyState
+      // 更新 ToyState
       final toy = Toy(
         id: device.deviceId,
         type: _toyTypeFromService(device.serviceUuid),
@@ -172,26 +218,21 @@ class _BluetoothPageState extends State<BluetoothPage> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _connectingIds.remove(device.deviceId));
-      }
+      if (mounted) setState(() => _connectingIds.remove(device.deviceId));
     }
   }
 
   Future<void> _disconnectDevice(String deviceId) async {
-    await _bleManager.disconnect(deviceId);
-    final registry = widget.registry;
-    if (registry != null) {
-      await registry.unregister(deviceId);
+    final isDebug = context.read<ApiConfig>().debugMode;
+    if (!isDebug) {
+      await _bleManager.disconnect(deviceId);
     }
-    if (mounted) {
-      context.read<ToyState>().removeToy(deviceId);
-    }
+    widget.registry?.unregister(deviceId);
+    if (mounted) context.read<ToyState>().removeToy(deviceId);
   }
 
   Future<void> _disconnectAll() async {
-    final toyState = context.read<ToyState>();
-    final ids = toyState.connectedToys.map((t) => t.id).toList();
+    final ids = context.read<ToyState>().connectedToys.map((t) => t.id).toList();
     for (final id in ids) {
       await _disconnectDevice(id);
     }
@@ -202,13 +243,44 @@ class _BluetoothPageState extends State<BluetoothPage> {
     }
   }
 
+  ToyDriver _createFakeDriver(String id, String name, String type) {
+    switch (type) {
+      case 'vibrator':
+        return FakeVibratorDriver(toyId: id, toyName: name);
+      case 'ems':
+        return FakeEMSDriver(toyId: id, toyName: name);
+      case 'enema':
+        return FakeEnemaDriver(toyId: id, toyName: name);
+      case 'lock':
+        return FakeLockDriver(toyId: id, toyName: name);
+      default:
+        return FakeVibratorDriver(toyId: id, toyName: name);
+    }
+  }
+
+  String _mockServiceUuid(String type) {
+    switch (type) {
+      case 'vibrator':
+        return '0000ff40-0000-1000-8000-00805f9b34fb';
+      case 'ems':
+        return '0000ff30-0000-1000-8000-00805f9b34fb';
+      case 'enema':
+        return '0000ffb0-0000-1000-8000-00805f9b34fb';
+      default:
+        return '0000ff40-0000-1000-8000-00805f9b34fb';
+    }
+  }
+
+  // ═══════════════════════════════════════════════
+  // Build
+  // ═══════════════════════════════════════════════
+
   @override
   Widget build(BuildContext context) {
     final toyState = context.watch<ToyState>();
     final connectedToys = toyState.connectedToys;
     final apiConfig = context.watch<ApiConfig>();
     final isDebug = apiConfig.debugMode;
-    final hasBleError = _errorMsg != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -221,8 +293,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppTheme.primary,
+                  strokeWidth: 2, color: AppTheme.primary,
                 ),
               ),
             )
@@ -236,31 +307,25 @@ class _BluetoothPageState extends State<BluetoothPage> {
       ),
       body: Column(
         children: [
-          // Debug 模式提示
           if (isDebug)
             _buildHintBanner(
               icon: Icons.bug_report,
-              text: 'Debug 模式：蓝牙为 UI 模拟，使用 FakeDriver',
+              text: 'Debug 模式：点击即可模拟连接，使用 FakeDriver',
               color: AppTheme.warning,
             ),
-
-          // BLE 错误提示
-          if (hasBleError && !isDebug)
+          if (!isDebug && _errorMsg != null)
             _buildHintBanner(
               icon: Icons.error_outline,
               text: _errorMsg!,
               color: AppTheme.danger,
             ),
-
-          // BLE 未初始化提示
-          if (!_isInitialized && !isDebug)
+          if (!isDebug && !_isInitialized)
             _buildHintBanner(
               icon: Icons.bluetooth_disabled,
               text: '蓝牙未就绪，确保蓝牙已开启',
               color: AppTheme.textMuted,
             ),
 
-          // 主体内容
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(16),
@@ -268,14 +333,11 @@ class _BluetoothPageState extends State<BluetoothPage> {
                 // ── 已连接设备 ──
                 _buildSectionHeader(
                   '已连接',
-                  connectedToys.isEmpty
-                      ? null
-                      : TextButton(
-                          onPressed: _disconnectAll,
-                          child: const Text('断开全部',
-                              style: TextStyle(
-                                  color: AppTheme.danger, fontSize: 12)),
-                        ),
+                  connectedToys.isEmpty ? null : TextButton(
+                    onPressed: _disconnectAll,
+                    child: const Text('断开全部',
+                        style: TextStyle(color: AppTheme.danger, fontSize: 12)),
+                  ),
                 ),
                 const SizedBox(height: 4),
 
@@ -287,23 +349,19 @@ class _BluetoothPageState extends State<BluetoothPage> {
                   )
                 else
                   ...connectedToys.map((toy) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: _connectedDeviceCard(toy),
-                      )),
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: _connectedDeviceCard(toy),
+                  )),
 
                 const SizedBox(height: 24),
 
                 // ── 发现设备 ──
-                Row(
-                  children: [
-                    Text('发现设备',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const Spacer(),
-                    if (_foundDevices.isNotEmpty)
-                      Text('${_foundDevices.length} 台',
-                          style: const TextStyle(
-                              fontSize: 11, color: AppTheme.textMuted)),
-                  ],
+                _buildSectionHeader(
+                  '发现设备',
+                  _foundDevices.isNotEmpty
+                      ? Text('${_foundDevices.length} 台',
+                          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted))
+                      : null,
                 ),
                 const SizedBox(height: 4),
 
@@ -314,29 +372,25 @@ class _BluetoothPageState extends State<BluetoothPage> {
                     child: const Column(
                       children: [
                         SizedBox(
-                          width: 24,
-                          height: 24,
+                          width: 24, height: 24,
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: AppTheme.primary),
                         ),
                         SizedBox(height: 12),
                         Text('正在扫描...',
-                            style: TextStyle(
-                                fontSize: 13, color: AppTheme.textMuted)),
+                            style: TextStyle(fontSize: 13, color: AppTheme.textMuted)),
                       ],
                     ),
                   )
                 else if (!_isScanning && _foundDevices.isNotEmpty)
                   ..._foundDevices.map((device) => _discoveredDeviceCard(
-                        device,
-                        toyState,
-                        connectedToys,
-                      ))
+                    device, connectedToys,
+                  ))
                 else
                   _buildEmptyState(
                     icon: Icons.search,
                     text: '点击右上角开始扫描',
-                    subtext: '需要已开启蓝牙',
+                    subtext: isDebug ? '将展示 4 台模拟设备' : '需要已开启蓝牙',
                   ),
               ],
             ),
@@ -346,9 +400,9 @@ class _BluetoothPageState extends State<BluetoothPage> {
     );
   }
 
-  // ════════════════════════════════════════════
-  // 组件
-  // ════════════════════════════════════════════
+  // ═══════════════════════════════════════════════
+  // Widgets
+  // ═══════════════════════════════════════════════
 
   Widget _buildHintBanner({
     required IconData icon,
@@ -369,8 +423,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(text,
-                style: TextStyle(fontSize: 10, color: color)),
+            child: Text(text, style: TextStyle(fontSize: 10, color: color)),
           ),
         ],
       ),
@@ -387,11 +440,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
     );
   }
 
-  Widget _buildEmptyState({
-    required IconData icon,
-    required String text,
-    String? subtext,
-  }) {
+  Widget _buildEmptyState({required IconData icon, required String text, String? subtext}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 32),
@@ -403,13 +452,10 @@ class _BluetoothPageState extends State<BluetoothPage> {
         children: [
           Icon(icon, size: 36, color: AppTheme.textMuted),
           const SizedBox(height: 8),
-          Text(text,
-              style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+          Text(text, style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
           if (subtext != null) ...[
             const SizedBox(height: 4),
-            Text(subtext,
-                style: const TextStyle(
-                    fontSize: 11, color: AppTheme.textMuted)),
+            Text(subtext, style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
           ],
         ],
       ),
@@ -427,32 +473,23 @@ class _BluetoothPageState extends State<BluetoothPage> {
         title: Text(toy.name, style: const TextStyle(fontSize: 14)),
         subtitle: Text('已连接 · ${toy.type.displayName}',
             style: const TextStyle(fontSize: 11, color: AppTheme.success)),
-        trailing: SizedBox(
-          width: 80,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Icon(Icons.bluetooth_connected,
-                  size: 16, color: AppTheme.success),
-              const SizedBox(width: 8),
-              InkResponse(
-                onTap: () => _disconnectDevice(toy.id),
-                child: Icon(Icons.close,
-                    color: AppTheme.textMuted, size: 20),
-              ),
-            ],
-          ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.bluetooth_connected, size: 16, color: AppTheme.success),
+            const SizedBox(width: 8),
+            InkResponse(
+              onTap: () => _disconnectDevice(toy.id),
+              child: const Icon(Icons.close, color: AppTheme.textMuted, size: 20),
+            ),
+          ],
         ),
         onTap: () => _showToyDetail(context, toy),
       ),
     );
   }
 
-  Widget _discoveredDeviceCard(
-    _FoundDevice device,
-    ToyState toyState,
-    List<Toy> connectedToys,
-  ) {
+  Widget _discoveredDeviceCard(_FoundDevice device, List<Toy> connectedToys) {
     final alreadyConnected = connectedToys.any((t) => t.id == device.deviceId);
     final isConnecting = _connectingIds.contains(device.deviceId);
     final toyType = _toyTypeFromService(device.serviceUuid);
@@ -465,17 +502,14 @@ class _BluetoothPageState extends State<BluetoothPage> {
           radius: 16,
           child: Text(toyType.icon, style: const TextStyle(fontSize: 16)),
         ),
-        title: Text(device.deviceName,
-            style: const TextStyle(fontSize: 14)),
+        title: Text(device.deviceName, style: const TextStyle(fontSize: 14)),
         subtitle: Row(
           children: [
-            Text(device.deviceId.substring(0, 8),
-                style: const TextStyle(
-                    fontSize: 10, color: AppTheme.textMuted)),
+            Text(device.deviceId,
+                style: const TextStyle(fontSize: 10, color: AppTheme.textMuted)),
             const SizedBox(width: 8),
             Text('${device.rssi} dBm',
-                style: const TextStyle(
-                    fontSize: 10, color: AppTheme.textMuted)),
+                style: const TextStyle(fontSize: 10, color: AppTheme.textMuted)),
             const SizedBox(width: 8),
             _rssiIndicator(device.rssi),
           ],
@@ -485,14 +519,14 @@ class _BluetoothPageState extends State<BluetoothPage> {
                 style: TextStyle(fontSize: 12, color: AppTheme.success))
             : isConnecting
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 20, height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : TextButton(
                     onPressed: () => _connect(
-                        _toyTypeFromService(device.serviceUuid).name,
-                        device),
+                      _toyTypeFromService(device.serviceUuid).name,
+                      device,
+                    ),
                     child: const Text('连接'),
                   ),
       ),
@@ -500,13 +534,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
   }
 
   Widget _rssiIndicator(int rssi) {
-    final bars = rssi > -50
-        ? 4
-        : rssi > -65
-            ? 3
-            : rssi > -80
-                ? 2
-                : 1;
+    final bars = rssi > -50 ? 4 : rssi > -65 ? 3 : rssi > -80 ? 2 : 1;
     return Row(
       children: List.generate(4, (i) {
         return Container(
@@ -537,58 +565,45 @@ class _BluetoothPageState extends State<BluetoothPage> {
           children: [
             Row(
               children: [
-                Text(toy.type.icon,
-                    style: const TextStyle(fontSize: 28)),
+                Text(toy.type.icon, style: const TextStyle(fontSize: 28)),
                 const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(toy.name,
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold)),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     Text(toy.type.displayName,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.textMuted)),
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
                   ],
                 ),
               ],
             ),
             const SizedBox(height: 20),
             const Text('支持指令',
-                style: TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w500)),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             const SizedBox(height: 8),
             ...toy.apiFunctions.entries.map((e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ',
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textSecondary)),
-                      Expanded(
-                        child: RichText(
-                          text: TextSpan(
-                            style: const TextStyle(
-                                fontSize: 13,
-                                color: AppTheme.textSecondary),
-                            children: [
-                              TextSpan(
-                                  text: e.key,
-                                  style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 11)),
-                              TextSpan(text: '  ${e.value}'),
-                            ],
-                          ),
-                        ),
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('• ', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                        children: [
+                          TextSpan(
+                              text: e.key,
+                              style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                          TextSpan(text: '  ${e.value}'),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                )),
+                ],
+              ),
+            )),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -600,8 +615,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.danger.withOpacity(0.1),
                 ),
-                child: const Text('断开连接',
-                    style: TextStyle(color: AppTheme.danger)),
+                child: const Text('断开连接', style: TextStyle(color: AppTheme.danger)),
               ),
             ),
           ],
@@ -610,9 +624,9 @@ class _BluetoothPageState extends State<BluetoothPage> {
     );
   }
 
-  // ════════════════════════════════════════════
+  // ═══════════════════════════════════════════════
   // 辅助
-  // ════════════════════════════════════════════
+  // ═══════════════════════════════════════════════
 
   ToyType _toyTypeFromService(String serviceUuid) {
     switch (serviceUuid.toLowerCase()) {
@@ -637,8 +651,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
         };
       case '0000ff30-0000-1000-8000-00805f9b34fb':
         return {
-          'set_channel_fixed(channel, mode_id, intensity)':
-              '固定模式, 强度0-276',
+          'set_channel_fixed(channel, mode_id, intensity)': '固定模式, 强度0-276',
           'set_channel_realtime(channel, intensity, frequency, pulse_width)':
               '自定义EMS, freq 1-100Hz, pw 0-100us',
           'set_motor(state)': '内置马达 0/1',
@@ -657,7 +670,6 @@ class _BluetoothPageState extends State<BluetoothPage> {
   }
 }
 
-/// 发现的 BLE 设备模型
 class _FoundDevice {
   final String deviceId;
   final String deviceName;
@@ -669,5 +681,17 @@ class _FoundDevice {
     required this.deviceName,
     required this.rssi,
     required this.serviceUuid,
+  });
+}
+
+class _MockDevice {
+  final String name;
+  final String id;
+  final String type;
+
+  const _MockDevice({
+    required this.name,
+    required this.id,
+    required this.type,
   });
 }

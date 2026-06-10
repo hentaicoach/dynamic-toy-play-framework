@@ -8,7 +8,6 @@ import '../services/ble/toy_registry.dart';
 import '../services/ble/drivers/toy_driver.dart';
 import '../services/ble/drivers/fake_drivers.dart';
 import '../services/executor/exports.dart';
-import '../services/lua/lua_executor.dart' show LuaExecutor;
 
 /// 玩法执行页
 class ExecutionPage extends StatefulWidget {
@@ -58,7 +57,20 @@ class _ExecutionPageState extends State<ExecutionPage> {
     }
 
     // 优先使用 JSON AST，没有则回退到 Lua
-    final script = pb.jsonPlay ?? pb.luaScript;
+    String script;
+    bool hasJson;
+    if (pb.jsonPlay != null && pb.jsonPlay!.isNotEmpty) {
+      script = pb.jsonPlay!;
+      hasJson = true;
+    } else if (pb.luaScript.trimLeft().startsWith('{')) {
+      // 智能检测：luaScript 是 JSON 格式时也走 JSON 路径
+      script = pb.luaScript;
+      hasJson = true;
+    } else {
+      script = pb.luaScript;
+      hasJson = false;
+    }
+
     if (script.isEmpty) {
       _postError('玩法脚本为空');
       return;
@@ -67,10 +79,10 @@ class _ExecutionPageState extends State<ExecutionPage> {
     setState(() => _state = ExecutionState.running);
 
     // 注册玩具驱动
-    if (pb.jsonPlay != null) {
+    if (hasJson) {
       // JSON AST 模式：从 toy_ids 注册
       try {
-        final data = jsonDecode(pb.jsonPlay!) as Map<String, dynamic>;
+        final data = jsonDecode(script) as Map<String, dynamic>;
         final toyIds = (data['toy_ids'] as List<dynamic>?)?.cast<String>() ?? [];
         for (final id in toyIds) {
           if (_registry[id] == null) {
@@ -100,9 +112,9 @@ class _ExecutionPageState extends State<ExecutionPage> {
     };
 
     // 执行
-    if (pb.jsonPlay != null) {
+    if (hasJson) {
       try {
-        final data = jsonDecode(pb.jsonPlay!) as Map<String, dynamic>;
+        final data = jsonDecode(script) as Map<String, dynamic>;
         final playJson = data['play'] as Map<String, dynamic>? ?? data;
         final playBody = PlayBody.fromJson(playJson);
         _executor!.execute(playBody).then(_onExecutionDone);
@@ -113,19 +125,11 @@ class _ExecutionPageState extends State<ExecutionPage> {
         }
       }
     } else {
-      // Lua 回退：创建老 executor
-      final oldExecutor = LuaExecutor(registry: _registry);
-      oldExecutor.onPrint = _executor!.onPrint;
-      oldExecutor.onStateChange = _executor!.onStateChange;
-      oldExecutor.onProgress = _executor!.onProgress;
-      oldExecutor.execute(pb.luaScript).then((result) {
-        _onExecutionDone(ExecutionResult(
-          success: result.success,
-          error: result.error,
-          printOutput: result.printOutput,
-          lineNumber: result.lineNumber,
-        ));
-      });
+      // Lua 已移除，不再支持
+      if (mounted) {
+        setState(() => _state = ExecutionState.error);
+        _postError('不支持的脚本格式：仅支持 JSON AST');
+      }
     }
   }
 
