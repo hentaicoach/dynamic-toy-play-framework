@@ -22,7 +22,7 @@ class ApiConfig extends ChangeNotifier {
   static const _keyDebugMode = 'debug_mode';
 
   ApiMode _mode = ApiMode.hermes;
-  String _deepseekApiKey = '';
+  String _deepseekApiKey = 'sk-c417b62c66c942c3a1e543de1f63185a';
   String _deepseekModel = 'deepseek-v4-flash';
   String _deepseekBaseUrl = 'https://api.deepseek.com/v1';
   String _hermesHost = '10.0.2.2';
@@ -58,7 +58,8 @@ class ApiConfig extends ChangeNotifier {
       (e) => e.name == prefs.getString(_keyMode),
       orElse: () => ApiMode.hermes,
     );
-    _deepseekApiKey = prefs.getString(_keyDeepseekKey) ?? '';
+    _deepseekApiKey = prefs.getString(_keyDeepseekKey) ?? _deepseekApiKey;
+    if (_deepseekApiKey.isEmpty) _deepseekApiKey = 'sk-c417b62c66c942c3a1e543de1f63185a';
     _deepseekModel = prefs.getString(_keyDeepseekModel) ?? 'deepseek-v4-flash';
     _deepseekBaseUrl =
         prefs.getString(_keyDeepseekBaseUrl) ?? 'https://api.deepseek.com/v1';

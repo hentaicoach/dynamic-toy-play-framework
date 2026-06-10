@@ -25,8 +25,8 @@ dependencies:
   # 工具
   uuid: ^4.2.1
 
-  # 🔵 BLE（锁定 1.29.0 — 7.x 分拆版与 AGP 8.3.2 不兼容）
-  flutter_blue_plus: 1.29.0
+  # 🔵 BLE
+  flutter_blue_plus: 1.30.0
 
   # 🔐 AES-128-ECB (灌肠机加密)
   encrypt: ^5.0.3
