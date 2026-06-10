@@ -194,8 +194,9 @@ class JsonPlayExecutor {
     _ctx!.setVar(inst.name, value);
   }
 
-  void _execPrint(PrintInst inst) {
-    _ctx!.addPrint(inst.msg);
+  Future<void> _execPrint(PrintInst inst) async {
+    final msg = await _evalExpr(inst.msg);
+    _ctx!.addPrint(msg?.toString() ?? '');
   }
 
   Future<void> _execIf(IfInst inst, int depth) async {

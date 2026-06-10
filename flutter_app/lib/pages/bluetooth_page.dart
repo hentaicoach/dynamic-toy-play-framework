@@ -462,31 +462,163 @@ class _BluetoothPageState extends State<BluetoothPage> {
     );
   }
 
+  /// 当前展开测试功能的玩具 ID
+  String? _expandedToyId;
+
   Widget _connectedDeviceCard(Toy toy) {
+    final isExpanded = _expandedToyId == toy.id;
+    final driver = widget.registry?[toy.id];
+
     return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppTheme.success.withOpacity(0.15),
-          radius: 16,
-          child: Text(toy.type.icon, style: const TextStyle(fontSize: 16)),
-        ),
-        title: Text(toy.name, style: const TextStyle(fontSize: 14)),
-        subtitle: Text('已连接 · ${toy.type.displayName}',
-            style: const TextStyle(fontSize: 11, color: AppTheme.success)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.bluetooth_connected, size: 16, color: AppTheme.success),
-            const SizedBox(width: 8),
-            InkResponse(
-              onTap: () => _disconnectDevice(toy.id),
-              child: const Icon(Icons.close, color: AppTheme.textMuted, size: 20),
+      margin: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        children: [
+          // ── 头部：名称 + 状态 ──
+          InkWell(
+            onTap: () {
+              setState(() {
+                _expandedToyId = isExpanded ? null : toy.id;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppTheme.success.withOpacity(0.15),
+                    radius: 16,
+                    child: Text(toy.type.icon, style: const TextStyle(fontSize: 16)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(toy.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text('已连接 · ${toy.type.displayName}',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.success)),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    isExpanded ? Icons.expand_less : Icons.expand_more,
+                    color: AppTheme.textMuted,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 4),
+                  InkResponse(
+                    onTap: () => _disconnectDevice(toy.id),
+                    child: const Icon(Icons.close, color: AppTheme.textMuted, size: 20),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── 展开：功能测试按钮 ──
+          if (isExpanded && driver != null) ...[
+            const Divider(height: 1, indent: 12, endIndent: 12),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('🧪 功能测试',
+                      style: TextStyle(fontSize: 11, color: AppTheme.textMuted, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: toy.apiFunctions.entries.map((entry) {
+                      final funcSignature = entry.key;
+                      final funcDesc = entry.value;
+                      final methodName = funcSignature.split('(').first;
+
+                      return ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor: AppTheme.primary.withOpacity(0.1),
+                        side: BorderSide.none,
+                        label: Text(methodName,
+                            style: const TextStyle(fontSize: 10, fontFamily: 'monospace')),
+                        onPressed: () => _callTestFunction(driver, methodName, toy.id, toy.type),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
             ),
           ],
-        ),
-        onTap: () => _showToyDetail(context, toy),
+        ],
       ),
     );
+  }
+
+  /// 调用测试函数（根据玩具类型自动推断测试参数）
+  Future<void> _callTestFunction(
+    ToyDriver driver, String method, String toyId, ToyType type,
+  ) async {
+    // 根据方法名推断测试参数
+    List<dynamic> testArgs;
+    switch (method) {
+      // ── 振动器 ──
+      case 'rate':
+        testArgs = [10, 5, 10]; // A马达中速, B低速, C中速
+      case 'set_mode':
+        testArgs = [7, 1]; // ABC马达, 模式1
+      case 'stop':
+        testArgs = [];
+
+      // ── EMS ──
+      case 'set_channel_fixed':
+        testArgs = ['A', 3, 100]; // A通道, 模式3, 强度100
+      case 'set_channel_realtime':
+        testArgs = ['A', 120, 50, 50]; // A通道, 强度120, 50Hz, 50us
+      case 'set_motor':
+        testArgs = [1]; // 开启马达
+      case 'stop_all':
+        testArgs = [];
+
+      // ── 灌肠机 ──
+      case 'fill':
+        testArgs = [3]; // 注水3秒
+      case 'drain':
+        testArgs = [3]; // 排水3秒
+      case 'pause':
+        testArgs = [];
+      case 'read_pressure':
+        testArgs = [];
+
+      // ── 电子锁 ──
+      case 'lock':
+        testArgs = [];
+      case 'unlock':
+        testArgs = [];
+
+      default:
+        testArgs = [];
+    }
+
+    try {
+      await driver.callMethod(method, testArgs);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ $toyId.$method(${testArgs.join(',')})'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ $method: $e'),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+      }
+    }
   }
 
   Widget _discoveredDeviceCard(_FoundDevice device, List<Toy> connectedToys) {

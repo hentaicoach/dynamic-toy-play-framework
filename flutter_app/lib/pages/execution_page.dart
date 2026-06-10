@@ -115,7 +115,14 @@ class _ExecutionPageState extends State<ExecutionPage> {
     if (hasJson) {
       try {
         final data = jsonDecode(script) as Map<String, dynamic>;
-        final playJson = data['play'] as Map<String, dynamic>? ?? data;
+
+        // 兼容 play 字段可能 `Map<String,dynamic>` 或 `String`（双编码）
+        dynamic rawPlay = data['play'];
+        if (rawPlay is String) {
+          rawPlay = jsonDecode(rawPlay);
+        }
+        final playJson = (rawPlay as Map<String, dynamic>?) ?? data;
+
         final playBody = PlayBody.fromJson(playJson);
         _executor!.execute(playBody).then(_onExecutionDone);
       } catch (e) {

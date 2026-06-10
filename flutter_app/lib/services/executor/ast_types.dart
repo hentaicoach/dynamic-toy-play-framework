@@ -99,18 +99,25 @@ class AssignInst extends Instruction {
   factory AssignInst.fromJson(Map<String, dynamic> json) {
     return AssignInst(
       name: json['name'] as String,
-      expr: Expr.fromJson(json['expr'] as Map<String, dynamic>),
+      expr: _parseExprField(json, 'expr'),
     );
   }
 }
 
 class PrintInst extends Instruction {
-  final String msg;
+  final Expr msg;
 
   PrintInst({required this.msg});
 
   factory PrintInst.fromJson(Map<String, dynamic> json) {
-    return PrintInst(msg: json['msg'] as String);
+    final raw = json['msg'];
+    Expr msg;
+    if (raw is Map<String, dynamic>) {
+      msg = Expr.fromJson(raw);
+    } else {
+      msg = StrExpr(raw?.toString() ?? '');
+    }
+    return PrintInst(msg: msg);
   }
 }
 
@@ -130,7 +137,7 @@ class IfInst extends Instruction {
     final rawElse = json['else'] as List<dynamic>? ?? [];
 
     return IfInst(
-      cond: Expr.fromJson(json['cond'] as Map<String, dynamic>),
+      cond: _parseExprField(json, 'cond'),
       thenBlock: rawThen
           .map((e) => Instruction.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -150,7 +157,7 @@ class WhileInst extends Instruction {
   factory WhileInst.fromJson(Map<String, dynamic> json) {
     final rawBody = json['body'] as List<dynamic>? ?? [];
     return WhileInst(
-      cond: Expr.fromJson(json['cond'] as Map<String, dynamic>),
+      cond: _parseExprField(json, 'cond'),
       body: rawBody
           .map((e) => Instruction.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -173,7 +180,7 @@ class RepeatInst extends Instruction {
 
     Expr? until;
     if (json['until'] != null) {
-      until = Expr.fromJson(json['until'] as Map<String, dynamic>);
+      until = _parseExprField(json, 'until');
     }
 
     final times = json['times'] as int?;
@@ -248,8 +255,8 @@ class BinopExpr extends Expr {
   factory BinopExpr.fromJson(Map<String, dynamic> json) {
     return BinopExpr(
       op: json['op'] as String,
-      left: Expr.fromJson(json['l'] as Map<String, dynamic>),
-      right: Expr.fromJson(json['r'] as Map<String, dynamic>),
+      left: _parseExprField(json, 'l'),
+      right: _parseExprField(json, 'r'),
     );
   }
 }
@@ -263,7 +270,7 @@ class UnopExpr extends Expr {
   factory UnopExpr.fromJson(Map<String, dynamic> json) {
     return UnopExpr(
       op: json['op'] as String,
-      operand: Expr.fromJson(json['x'] as Map<String, dynamic>),
+      operand: _parseExprField(json, 'x'),
     );
   }
 }
@@ -288,4 +295,11 @@ class ToyCallExpr extends Expr {
       args: args,
     );
   }
+}
+
+/// 从 JSON map 中解析表达式字段，兼容 Map（表达式对象）或字面值
+Expr _parseExprField(Map<String, dynamic> json, String key) {
+  final raw = json[key];
+  if (raw is Map<String, dynamic>) return Expr.fromJson(raw);
+  return Expr.fromValue(raw);
 }
