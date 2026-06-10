@@ -9,6 +9,7 @@ import '../models/chat_message.dart';
 import '../models/playbook.dart';
 import '../models/toy.dart';
 import 'deepseek_api.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// WebSocket 连接状态
 enum WsConnectionState { disconnected, connecting, connected, error }
@@ -53,7 +54,7 @@ class HermesApiService extends ChangeNotifier {
     _lastError = null;
 
     final uri = Uri.parse('ws://$host:$port/api/chat/ws');
-    debugPrint('[HermesWS] Connecting to $uri');
+    Log.i('[HermesWS] Connecting to $uri');
 
     try {
       _ws = await WebSocket.connect(uri.toString()).timeout(
@@ -69,11 +70,11 @@ class HermesApiService extends ChangeNotifier {
       );
 
       _setState(WsConnectionState.connected);
-      debugPrint('[HermesWS] Connected');
+      Log.i('[HermesWS] Connected');
     } catch (e) {
       _lastError = '连接失败: $e';
       _setState(WsConnectionState.error);
-      debugPrint('[HermesWS] $e');
+      Log.i('[HermesWS] $e');
       _scheduleReconnect();
     }
   }
@@ -134,7 +135,7 @@ class HermesApiService extends ChangeNotifier {
     try {
       _ws!.add(jsonEncode(data));
     } catch (e) {
-      debugPrint('[HermesWS] Send error: $e');
+      Log.i('[HermesWS] Send error: $e');
       _lastError = '发送失败: $e';
       notifyListeners();
     }
@@ -206,19 +207,19 @@ class HermesApiService extends ChangeNotifier {
           notifyListeners();
       }
     } catch (e) {
-      debugPrint('[HermesWS] Parse error: $e');
+      Log.i('[HermesWS] Parse error: $e');
     }
   }
 
   void _onError(dynamic error) {
-    debugPrint('[HermesWS] Error: $error');
+    Log.i('[HermesWS] Error: $error');
     _lastError = '连接异常: $error';
     _setState(WsConnectionState.error);
     _scheduleReconnect();
   }
 
   void _onDone() {
-    debugPrint('[HermesWS] Closed');
+    Log.i('[HermesWS] Closed');
     _ws = null;
     _setState(WsConnectionState.disconnected);
     _scheduleReconnect();
@@ -235,7 +236,7 @@ class HermesApiService extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 5), () {
       if (!_disposed) {
-        debugPrint('[HermesWS] Reconnecting...');
+        Log.i('[HermesWS] Reconnecting...');
         connect();
       }
     });

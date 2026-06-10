@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/playbook.dart';
 import '../models/toy.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// 直接调 DeepSeek API 玩法设计服务
 class DeepseekApiService extends ChangeNotifier {
@@ -263,7 +264,7 @@ class DeepseekApiService extends ChangeNotifier {
       'temperature': 0.7,
     };
 
-    debugPrint('[DeepseekAPI] Calling $_model, messages=${messages.length}');
+    Log.d('[DeepseekAPI] Calling $_model, messages=${messages.length}');
 
     final resp = await http
         .post(
@@ -277,7 +278,7 @@ class DeepseekApiService extends ChangeNotifier {
         .timeout(const Duration(seconds: 600));
 
     if (resp.statusCode != 200) {
-      debugPrint('[DeepseekAPI] HTTP ${resp.statusCode}: ${resp.body}');
+      Log.d('[DeepseekAPI] HTTP ${resp.statusCode}: ${resp.body}');
       _lastError = 'API 错误 ${resp.statusCode}';
       return null;
     }
@@ -315,7 +316,7 @@ class DeepseekApiService extends ChangeNotifier {
       ));
     }
 
-    debugPrint('[DeepseekAPI] Parsed JSON playbook: name=$name'
+    Log.d('[DeepseekAPI] Parsed JSON playbook: name=$name'
         ' duration=$duration steps=${steps.length}');
 
     return PlaybookResult(
@@ -360,7 +361,7 @@ class DeepseekApiService extends ChangeNotifier {
       }
     }
 
-    debugPrint('[DeepseekAPI] WARNING: Failed to extract JSON AST');
+    Log.d('[DeepseekAPI] WARNING: Failed to extract JSON AST');
     return '{}';
   }
 
@@ -370,7 +371,7 @@ class DeepseekApiService extends ChangeNotifier {
     try {
       return jsonDecode(jsonStr) as Map<String, dynamic>;
     } catch (e) {
-      debugPrint('[DeepseekAPI] JSON parse error: $e');
+      Log.d('[DeepseekAPI] JSON parse error: $e');
       return {};
     }
   }

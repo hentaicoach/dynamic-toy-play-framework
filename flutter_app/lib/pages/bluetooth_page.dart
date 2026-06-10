@@ -12,6 +12,7 @@ import '../services/ble/toy_registry.dart';
 import '../services/ble/drivers/toy_driver.dart';
 import '../services/ble/drivers/fake_drivers.dart';
 import '../services/ble/native_ble_scanner.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 class BluetoothPage extends StatefulWidget {
   final ToyRegistry? registry;
@@ -98,7 +99,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
 
   Future<void> _startBleScan() async {
     try {
-      debugPrint('[BLE] 启动 flutter_blue_plus 扫描...');
+      Log.i('[BLE] 启动 flutter_blue_plus 扫描...');
       setState(() { _isScanning = true; _foundDevices.clear(); _errorMsg = null; });
 
       // 检查定位服务是否开启（Android BLE 扫描需要）
@@ -112,9 +113,9 @@ class _BluetoothPageState extends State<BluetoothPage> {
       }
 
       // 请求定位权限（Android 12+ 部分 OEM 需要显式申请）
-      debugPrint('[BLE] 请求定位权限...');
+      Log.i('[BLE] 请求定位权限...');
       final locGranted = await nativeScanner.requestLocationPermission();
-      debugPrint('[BLE] 定位权限结果: $locGranted');
+      Log.i('[BLE] 定位权限结果: $locGranted');
       if (!locGranted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -153,7 +154,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
       // 订阅扫描结果流
       _scanSub?.cancel();
       _scanSub = _bleManager.scanResults.listen((result) {
-        debugPrint('[BLE] 发现设备: ${result.deviceName} (${result.deviceId}) RSSI=${result.rssi} UUID=${result.serviceUuid}');
+        Log.i('[BLE] 发现:  ${result.deviceName} (${result.deviceId}) RSSI=${result.rssi} UUID=${result.serviceUuid}');
         if (!mounted) return;
         setState(() {
           final idx = _foundDevices.indexWhere((fd) => fd.deviceId == result.deviceId);
@@ -179,15 +180,15 @@ class _BluetoothPageState extends State<BluetoothPage> {
       await _bleManager.startScan(timeout: const Duration(seconds: 10));
 
       // 等待扫描自动超时结束（通过 isScanning 流检测）
-      debugPrint('[BLE] 等待扫描完成...');
+      Log.i('[BLE] 扫描中...');
       await FlutterBluePlus.isScanning.firstWhere((s) => s == false);
-      debugPrint('[BLE] 扫描已停止');
+      Log.i('[BLE] 扫描完成');
 
       // 取消订阅流
       await _scanSub?.cancel();
       _scanSub = null;
 
-      debugPrint('[BLE] 扫描完成，共发现 ${_foundDevices.length} 个设备');
+      Log.i('[BLE] 扫描完成，共发现 ${_foundDevices.length} 个设备');
 
       if (mounted) setState(() => _isScanning = false);
 
@@ -201,7 +202,7 @@ class _BluetoothPageState extends State<BluetoothPage> {
         );
       }
     } catch (e) {
-      debugPrint('[BLE] 扫描异常: $e');
+      Log.w('[BLE] 扫描异常: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('蓝牙异常: $e'), backgroundColor: AppTheme.danger),
@@ -258,23 +259,33 @@ class _BluetoothPageState extends State<BluetoothPage> {
 
       // 从 Service UUID 推断玩具类型
       final type = _typeFromServiceUuid(serviceUuid);
-      debugPrint('[BLE] 连接: ${device.deviceName} uuid=$serviceUuid type=$type');
+      Log.i('[BLE] 连接: ${device.deviceName} uuid=$serviceUuid type=$type');
 
       if (isDebug) {
-        widget.registry?.register(device.deviceId,
-            _createFakeDriver(device.deviceId, device.deviceName, type));
+        final driver = _createFakeDriver(device.deviceId, device.deviceName, type);
+        widget.registry?.register(device.deviceId, driver);
+        // Debug 模式也注册短名
+        final shortName = _shortToyName(device.deviceName, type);
+        if (shortName != null) {
+          widget.registry?.register(shortName, driver);
+        }
       } else {
         final conn = await _bleManager.connect(
           deviceId: device.deviceId,
           deviceName: device.deviceName,
           serviceUuid: serviceUuid,
         );
-        widget.registry?.registerBleDriver(
+        final driver = widget.registry?.registerBleDriver(
           toyId: device.deviceId,
           toyName: device.deviceName,
           type: type,
           conn: conn,
         );
+        // 同时注册短名别名（如 enema_1, mast_1），方便 playbook 按名字调用
+        final shortName = _shortToyName(device.deviceName, type);
+        if (shortName != null && driver != null) {
+          widget.registry?.register(shortName, driver, conn: conn);
+        }
       }
 
       final toy = Toy(
@@ -352,6 +363,17 @@ class _BluetoothPageState extends State<BluetoothPage> {
     if (u.contains('ff30')) return 'ems';
     if (u.contains('ff40')) return 'vibrator';
     return 'vibrator'; // 默认当成 FF40 马达设备
+  }
+
+  /// 生成短名别名（用于 playbook 里的玩具 ID）
+  String? _shortToyName(String deviceName, String type) {
+    final lower = deviceName.toLowerCase();
+    // 已知设备名直接生成
+    if (lower.contains('yiskj') || type == 'enema') return 'enema_1';
+    if (lower.contains('ycy') || lower.contains('fjb') || type == 'vibrator') return 'mast_1';
+    if (type == 'ems') return 'ems_1';
+    if (type == 'lock') return 'lock_1';
+    return null;
   }
 
   Map<String, String> _apiForType(String type) {

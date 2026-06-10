@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_connection.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// BLE 扫描结果模型
 class BleScanResult {
@@ -23,6 +24,23 @@ const Map<String, String> kServiceToToyType = {
   '0000ff30-0000-1000-8000-00805f9b34fb': 'ems',
   '0000ffb0-0000-1000-8000-00805f9b34fb': 'enema',
 };
+
+/// 已知的 YOKONEX 玩具 Service UUID 短标识（用于过滤）
+const _kYokonexShortIds = ['ff40', 'ff30', 'ffb0'];
+
+/// 判断广播中是否有 YOKONEX 设备的 Service UUID
+bool _isYokonexDevice(List<Guid> advUuids, Map<Guid, List<int>> serviceData) {
+  final allUuids = [
+    ...advUuids.map((g) => g.toString().toLowerCase()),
+    ...serviceData.keys.map((g) => g.toString().toLowerCase()),
+  ];
+  for (final u in allUuids) {
+    for (final shortId in _kYokonexShortIds) {
+      if (u.contains(shortId)) return true;
+    }
+  }
+  return false;
+}
 
 /// BLE 管理器 — 包装 FlutterBluePlus
 class BleManager {
@@ -56,7 +74,7 @@ class BleManager {
     // 监听扫描状态变化，自动同步 _isScanning
     FlutterBluePlus.isScanning.listen((scanning) {
       _isScanning = scanning;
-      debugPrint('[BLE-MGR] isScanning=$scanning');
+      Log.i('[BLE-MGR] 扫描=$scanning');
     });
 
     await Future.delayed(const Duration(milliseconds: 500));
@@ -74,7 +92,7 @@ class BleManager {
     );
 
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      debugPrint('[BLE-SCAN] 收到扫描结果批次: ${results.length} 个设备');
+      Log.i('[BLE-SCAN] 扫描: ${results.length} 个设备');
       for (final r in results) {
         final device = r.device;
         final name = device.platformName.isNotEmpty
@@ -84,13 +102,19 @@ class BleManager {
 
         // 提取广播的 Service UUID（来自标准 UUID 和 Service Data 两种格式）
         final advUuids = r.advertisementData.serviceUuids;
-        final advServiceDataKeys = r.advertisementData.serviceData.keys;
+        final advServiceData = r.advertisementData.serviceData;
         final allUuids = [
           ...advUuids.map((g) => g.toString()),
-          ...advServiceDataKeys.map((g) => g.toString()),
+          ...advServiceData.keys.map((g) => g.toString()),
         ];
         final serviceUuid = allUuids.isNotEmpty ? allUuids.first : '';
-        debugPrint('[BLE-SCAN]   -> $name ($id) RSSI=${r.rssi} UUIDs=$allUuids');
+
+        // 过滤：只显示 YOKONEX 设备和已知名称的玩具
+        final isYokonex = _isYokonexDevice(advUuids, advServiceData);
+        final isKnownToy = name.contains('YISKJ') || name.contains('YCY-');
+        if (!isYokonex && !isKnownToy) continue;
+
+        Log.i('[BLE-SCAN]   ✅ $name ($id) RSSI=${r.rssi} UUIDs=$allUuids');
 
         // 不限制 UUID，所有设备都展示，记录广播的 Service UUID
         _scanResults.add(BleScanResult(
@@ -102,7 +126,7 @@ class BleManager {
       }
       print(''); // 空行分隔
     });
-    debugPrint('[BLE-SCAN] 扫描监听已注册');
+    Log.d('[BLE-SCAN] 扫描监听已注册');
   }
 
   Future<void> stopScan() async {
@@ -134,12 +158,12 @@ class BleManager {
 
     // 如果广播 Service UUID 为空，用 autoConnectAndDiscover 自动匹配
     if (serviceUuid.isEmpty) {
-      debugPrint('[BLE-MGR] 广播 UUID 为空，自动发现服务...');
+      Log.i('[BLE-MGR] 广播 UUID 为空，自动发现服务...');
       await conn.autoConnectAndDiscover();
     } else {
       final charUuids = _getCharUuids(serviceUuid);
       if (charUuids == null) {
-        debugPrint('[BLE-MGR] 广播 UUID "$serviceUuid" 不在已知列表，尝试自动发现...');
+        Log.i('[BLE-MGR] UUID$serviceUuid" 不在已知列表，尝试自动发现...');
         await conn.autoConnectAndDiscover();
       } else {
         await conn.connectAndDiscover(
@@ -188,7 +212,7 @@ class BleManager {
       return _CharUuids(write: '0000ffb1-0000-1000-8000-00805f9b34fb', notify: '0000ffb2-0000-1000-8000-00805f9b34fb');
     }
 
-    debugPrint('[BLE-MGR] 未知 Service UUID: $serviceUuid');
+    Log.d('[BLE-MGR] 未知 Service UUID: $serviceUuid');
     return null;
   }
 

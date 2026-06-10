@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// BLE 连接抽象 — 封装一个已连接的玩具设备的读写操作
 class BleConnection {
@@ -55,11 +56,11 @@ class BleConnection {
   }) async {
     await _device.connect(timeout: timeout);
     final services = await _device.discoverServices();
-    debugPrint('[BLE-CONN] ${device.platformName} 发现 ${services.length} 个服务');
+    Log.d('[BLE-CONN] ${device.platformName} 发现 ${services.length} 个服务');
 
     for (final svc in services) {
       final svcUuid = svc.uuid.toString().toLowerCase();
-      debugPrint('[BLE-CONN]   Service: $svcUuid');
+      Log.i('[BLE-CONN]   Service: $svcUuid');
 
       // 匹配已知 YOKONEX 服务
       for (final known in _knownServices) {
@@ -68,7 +69,7 @@ class BleConnection {
             svc.uuid.str128.toLowerCase() == known) {
           discoveredServiceUuid = known;
           final chars = _serviceToChars[known]!;
-          debugPrint('[BLE-CONN]   ✅ 匹配到 YOKONEX 服务: $known');
+          Log.i('[BLE-CONN]   ✅ 匹配到 YOKONEX 服务: $known');
 
           for (final chr in svc.characteristics) {
             final chrUuid = chr.uuid.toString().toLowerCase();
@@ -79,14 +80,14 @@ class BleConnection {
                 chrUuid == targetWrite ||
                 chr.uuid.str128.toLowerCase() == targetWrite) {
               _writeChar = chr;
-              debugPrint('[BLE-CONN]     Write Char: $chrUuid ✅');
+              Log.i('[BLE-CONN]     Write Char: $chrUuid ✅');
             }
             if (targetNotify != null &&
                 (chrUuid.contains(targetNotify.substring(4, 8)) ||
                     chrUuid == targetNotify ||
                     chr.uuid.str128.toLowerCase() == targetNotify)) {
               _notifyChar = chr;
-              debugPrint('[BLE-CONN]     Notify Char: $chrUuid ✅');
+              Log.i('[BLE-CONN]     Notify Char: $chrUuid ✅');
             }
           }
 
@@ -103,7 +104,7 @@ class BleConnection {
     if (_notifyChar != null) {
       await _notifyChar!.setNotifyValue(true);
       _notifyChar!.onValueReceived.listen((data) {
-        debugPrint('[BLE-CONN] Notify 收到: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+        Log.i('[BLE-CONN] Notify 收到: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
         _notifyController.add(data);
       });
     }

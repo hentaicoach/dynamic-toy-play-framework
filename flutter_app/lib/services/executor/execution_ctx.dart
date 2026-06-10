@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../ble/toy_registry.dart';
 import '../ble/drivers/toy_driver.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// 执行上下文 — 管理变量、取消信号、进度回调
 ///
@@ -82,7 +83,7 @@ class ExecutionCtx {
   void addPrint(String msg) {
     printOutput.add(msg);
     onPrint?.call(msg);
-    debugPrint('[Lua:print] $msg');
+    Log.d('[Lua:print] $msg');
   }
 
   /// 状态变更

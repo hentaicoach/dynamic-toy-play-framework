@@ -27,7 +27,7 @@ class ExecutionPage extends StatefulWidget {
 }
 
 class _ExecutionPageState extends State<ExecutionPage> {
-  final ToyRegistry _registry = ToyRegistry();
+  final ToyRegistry _registry = ToyRegistry(); // 单例，和蓝牙页共享
   JsonPlayExecutor? _executor;
   StreamSubscription? _logSub;
   ExecutionState _state = ExecutionState.idle;
@@ -389,7 +389,8 @@ class _ExecutionPageState extends State<ExecutionPage> {
           const SizedBox(height: 8),
 
           // 详细日志
-          Expanded(
+          SizedBox(
+            height: 240, // 固定高度可滚动窗口
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               padding: const EdgeInsets.all(12),

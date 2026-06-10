@@ -38,6 +38,11 @@ class ToyConfig {
 
 /// 玩具注册表 — 管理 ToyDriver 实例 + 执行日志
 class ToyRegistry extends ChangeNotifier {
+  /// 全局单例（蓝牙页面和执行页面共享）
+  static final ToyRegistry _instance = ToyRegistry._();
+  factory ToyRegistry() => _instance;
+  ToyRegistry._();
+
   final Map<String, ToyDriver> _drivers = {};
   final Map<String, BleConnection> _bleConns = {};
   final List<DriverLogEntry> _logs = [];
@@ -155,7 +160,9 @@ class ToyRegistry extends ChangeNotifier {
 
   /// 停止所有
   Future<void> stopAll() async {
-    for (final d in _drivers.values) {
+    // 快照遍历，防止 concurrent modification
+    final drivers = _drivers.values.toList();
+    for (final d in drivers) {
       await d.emergencyStop();
     }
     _addLog('STATUS', 'system', '🛑 所有玩具已停止');

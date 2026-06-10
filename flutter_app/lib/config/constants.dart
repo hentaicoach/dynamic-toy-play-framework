@@ -1,3 +1,46 @@
+/// 日志级别
+enum LogLevel { debug, info, warn, error }
+
+/// 全局日志帮助类 — debug 包输出全部日志，release 包只输出 info+
+class Log {
+  static LogLevel _level = LogLevel.info;
+
+  /// 设置日志级别
+  static void setLevel(LogLevel level) => _level = level;
+  static LogLevel get currentLevel => _level;
+
+  /// Debug 日志
+  static void d(String message) {
+    if (_level.index <= LogLevel.debug.index) {
+      _print('[D]', message);
+    }
+  }
+
+  /// Info 日志
+  static void i(String message) {
+    if (_level.index <= LogLevel.info.index) {
+      _print('[I]', message);
+    }
+  }
+
+  /// Warn 日志
+  static void w(String message) {
+    if (_level.index <= LogLevel.warn.index) {
+      _print('[W]', message);
+    }
+  }
+
+  /// Error 日志
+  static void e(String message) {
+    _print('[E]', message);
+  }
+
+  static void _print(String level, String message) {
+    // ignore: avoid_print
+    print('$level $message');
+  }
+}
+
 class AppConstants {
   // Hermes API 服务地址（AVD 用 10.0.2.2，真机改回局域网 IP）
   static const String hermesHost = '10.0.2.2';

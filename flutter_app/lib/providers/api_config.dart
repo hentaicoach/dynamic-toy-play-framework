@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yokonex_play/config/constants.dart';
 
 /// API 连接模式
 enum ApiMode { hermes, deepseek }
@@ -68,7 +69,7 @@ class ApiConfig extends ChangeNotifier {
     _debugMode = prefs.getBool(_keyDebugMode) ?? true;
     _loaded = true;
     notifyListeners();
-    debugPrint('[ApiConfig] Loaded from local storage, mode=$_mode, hasKey=${_deepseekApiKey.isNotEmpty}');
+    Log.i('[ApiConfig] Loaded from local storage, mode=$_mode, hasKey=${_deepseekApiKey.isNotEmpty}');
   }
 
   // ── 可选：从 Hermes 服务导入 Key（服务在线时方便初始配置） ──
@@ -83,12 +84,12 @@ class ApiConfig extends ChangeNotifier {
         if (key.isNotEmpty && _deepseekApiKey.isEmpty) {
           _deepseekApiKey = key;
           _save();
-          debugPrint('[ApiConfig] Imported key from Hermes server');
+          Log.i('[ApiConfig] Imported key from Hermes server');
           return true;
         }
       }
     } catch (e) {
-      debugPrint('[ApiConfig] Import from Hermes skipped: $e');
+      Log.i('[ApiConfig] Import from Hermes skipped: $e');
     }
     return false;
   }

@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:yokonex_play/config/constants.dart';
 import 'toy_driver.dart';
 import '../ble_connection.dart';
 
@@ -42,7 +43,7 @@ class EnemaDriver extends ToyDriver {
     required BleConnection conn,
   }) : _conn = conn {
     _encrypter = encrypt.Encrypter(
-      encrypt.AES(_aesKey, mode: encrypt.AESMode.ecb),
+      encrypt.AES(_aesKey, mode: encrypt.AESMode.ecb, padding: null),
     );
 
     // 监听通知，解析压力上报
@@ -68,10 +69,17 @@ class EnemaDriver extends ToyDriver {
     await _conn.write(encrypted.bytes);
   }
 
-  /// 解密密文包
-  Uint8List _decrypt(List<int> cipherBytes) {
-    final encrypted = encrypt.Encrypted(Uint8List.fromList(cipherBytes));
-    return Uint8List.fromList(_encrypter.decryptBytes(encrypted));
+  /// 解密密文包（只处理16字节的AES块）
+  Uint8List? _decrypt(List<int> cipherBytes) {
+    if (cipherBytes.length != 16) {
+      return null; // 非AES数据（握手包等），静默跳过
+    }
+    try {
+      final encrypted = encrypt.Encrypted(Uint8List.fromList(cipherBytes));
+      return Uint8List.fromList(_encrypter.decryptBytes(encrypted));
+    } catch (e) {
+      return null;
+    }
   }
 
   /// 构建 16 字节明文包
@@ -97,12 +105,12 @@ class EnemaDriver extends ToyDriver {
   // 命令实现
   // ════════════════════════════════════════════
 
-  /// 注水（蠕动泵正转）
-  /// BF 0F A0 01 [status:00/01/02] [time:2字节,秒] [padding]
+  /// 充气（蠕动泵反转 = 向气囊注气）
+  /// 协议：BF 0F A0 01 02 [timeH] [timeL] [padding]
   Future<void> fill(int seconds) async {
     final timeBytes = _toUint16(seconds.clamp(0, 0xFFFF));
     final plain = _buildPlainPacket(_cmdFill, [
-      0x01, // 正转
+      0x02, // 反转 = 充气
       timeBytes[0], timeBytes[1],
     ]);
     await _sendEncrypted(plain);
@@ -111,7 +119,6 @@ class EnemaDriver extends ToyDriver {
   }
 
   /// 排水（抽水泵正转）
-  /// BF 0F A0 02 [status:00/01] [time:2字节,秒] [padding]
   Future<void> drain(int seconds) async {
     final timeBytes = _toUint16(seconds.clamp(0, 0xFFFF));
     final plain = _buildPlainPacket(_cmdDrain, [
@@ -136,39 +143,38 @@ class EnemaDriver extends ToyDriver {
     final plain = _buildPlainPacket(_cmdQuery);
     await _sendEncrypted(plain);
     logAction('query_status', []);
-    // 注意：查询结果通过 notify 异步返回，需要等响应
-    // 这里为简化，直接返回空，实际结果在 _handleNotification 里
     return {};
   }
 
-  /// 读取压力值（从 notify 缓存读取）
+  /// 压力缓存
   int _lastPressureA = 50;
   int _lastPressureB = 50;
   int _lastBattery = 85;
 
-  int readPressureA() => _lastPressureA;
-  int readPressureB() => _lastPressureB;
+  /// 压力读取（发查询命令 + 等设备响应）
+  @override
+  /// 压力读取（发查询命令 + 等设备响应）
+  /// 返回 pressure_a 的值（气囊内部气压）
+  @override
+  Future<int> readPressure() async {
+    // 发查询命令触发设备响应
+    final plain = _buildPlainPacket(_cmdQuery);
+    await _sendEncrypted(plain);
+    logAction('read_pressure', []);
+
+    // 等待设备上报压力（设备每 200ms 自动上报，等 800ms 确保拿到最新值）
+    await Future.delayed(const Duration(milliseconds: 800));
+    logStatus('📊 压力 A=$_lastPressureA  B=$_lastPressureB');
+    return _lastPressureA;
+  }
 
   @override
   Future<int> getBattery() async {
-    // 覆盖父类的 getBattery，发 BLE 命令查询
     final plain = _buildPlainPacket(_cmdBattery);
     await _sendEncrypted(plain);
     logAction('get_battery', []);
     logStatus('🔋 查询电量');
-    // 电量通过 notify 异步回调，这里直接返回缓存值
-    // 真实的异步回调流程需要更复杂的等待机制
     return _lastBattery;
-  }
-
-  /// 压力读取（有返回值，被 callMethodWithResult 调用）
-  Future<Map<String, int>> readPressure() async {
-    logAction('read_pressure', []);
-    logStatus('📊 压力 A=$_lastPressureA  B=$_lastPressureB');
-    return {
-      'pressure_a': _lastPressureA,
-      'pressure_b': _lastPressureB,
-    };
   }
 
   // ════════════════════════════════════════════
@@ -178,6 +184,7 @@ class EnemaDriver extends ToyDriver {
   void _handleNotification(List<int> data) {
     try {
       final plain = _decrypt(data);
+      if (plain == null) return;
       if (plain.length < 4) return;
       if (plain[0] != _header1 || plain[1] != _header2) return;
       if (plain[2] != _headerResp) return;
@@ -185,8 +192,8 @@ class EnemaDriver extends ToyDriver {
       final respCmd = plain[3];
       switch (respCmd) {
         case 0x01: // 工作状态上报
-          final peristalticStatus = plain[4]; // 蠕动泵: 00=停止 01=正转 02=反转
-          final suctionStatus = plain[5]; // 抽水泵: 00=停止 01=正转
+          final peristalticStatus = plain[4];
+          final suctionStatus = plain[5];
           logStatus('📋 泵状态 蠕动泵=${_pumpStatusText(peristalticStatus)} 抽水泵=${_pumpStatusText(suctionStatus)}');
           break;
         case 0x02: // 压力上报
@@ -207,6 +214,7 @@ class EnemaDriver extends ToyDriver {
   // ════════════════════════════════════════════
   // 紧急停止
   // ════════════════════════════════════════════
+
   @override
   Future<void> emergencyStop() async {
     await pause();
@@ -228,7 +236,6 @@ class EnemaDriver extends ToyDriver {
     }
   }
 
-  @override
   Future<dynamic> callMethodWithResult(
       String method, List<dynamic> args) async {
     if (method == 'read_pressure') return readPressure();

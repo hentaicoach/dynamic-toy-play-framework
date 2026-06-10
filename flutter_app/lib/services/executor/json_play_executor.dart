@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:yokonex_play/config/constants.dart';
 import 'ast_types.dart';
 import 'execution_ctx.dart';
 import '../ble/toy_registry.dart';
@@ -82,7 +83,7 @@ class JsonPlayExecutor {
         lineNumber: _ctx!.currentLine,
       );
     } catch (e) {
-      debugPrint('[JsonPlayExecutor] Error: $e');
+      Log.i('[Executor] Error: $e');
       _setState(ExecutionState.error);
       return ExecutionResult(
         success: false,
@@ -159,7 +160,7 @@ class JsonPlayExecutor {
   Future<void> _execToyCall(ToyCallInst inst) async {
     final driver = registry[inst.toy];
     if (driver == null) {
-      debugPrint('[JsonPlayExecutor] ⚠ 未注册的玩具: ${inst.toy}');
+      Log.i('[Executor] ⚠ 未注册的玩具: ${inst.toy}');
       registry.logError(inst.toy, '❌ 未注册: ${inst.toy}');
       return;
     }
@@ -305,7 +306,7 @@ class JsonPlayExecutor {
   Future<dynamic> _evalToyCallExpr(ToyCallExpr expr) async {
     final driver = registry[expr.toy];
     if (driver == null) {
-      debugPrint('[JsonPlayExecutor] ⚠ 未注册的玩具(表达式): ${expr.toy}');
+      Log.i('[Executor] ⚠ 未注册的玩具(表达式): ${expr.toy}');
       return 0;
     }
 
