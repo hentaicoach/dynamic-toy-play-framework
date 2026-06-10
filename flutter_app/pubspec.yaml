@@ -1,0 +1,42 @@
+name: yokonex_play
+description: YOKONEX Play - Dynamic toy play framework with AI-driven Lua script generation
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 状态管理
+  provider: ^6.1.1
+
+  # 网络请求
+  http: ^1.2.0
+
+  # 本地存储
+  shared_preferences: ^2.2.2
+
+  # JSON 序列化
+  json_annotation: ^4.8.1
+
+  # 工具
+  uuid: ^4.2.1
+
+  # 🔵 BLE（锁定 1.29.0 — 7.x 分拆版与 AGP 8.3.2 不兼容）
+  flutter_blue_plus: 1.29.0
+
+  # 🔐 AES-128-ECB (灌肠机加密)
+  encrypt: ^5.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  json_serializable: ^6.7.1
+  build_runner: ^2.4.7
+
+flutter:
+  uses-material-design: true

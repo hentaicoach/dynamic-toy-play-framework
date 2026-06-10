@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "updated": "2026-06-10",
+  "playbooks": [
+    {
+      "id": "playbook_20260610_002",
+      "name": "束缚逃脱 · 递增惩罚",
+      "description": "玩家被捆绑+电子锁锁死，夹紧肛塞突破气压阈值触发倒计时——30s忍耐期→60s递增电击+飞机杯加速→解锁解脱。失守会加重惩罚。",
+      "toys": ["飞机杯(FF40)", "电击器(FF30)", "灌肠机(FFB0)", "电子锁(BLE)"],
+      "duration": "约90秒 + 等待时间",
+      "lua_file": "bondage_escape_penalty.lua",
+      "doc_file": "bondage_escape_penalty.md",
+      "created": "2026-06-10",
+      "tags": ["束缚", "逃脱", "递增惩罚", "BDSM", "电击"]
+    }
+  ]
+}
